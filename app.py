@@ -1,106 +1,65 @@
 import streamlit as st
-import re
+import pickle
+import numpy as np
 
-st.set_page_config(page_title="MAC Address Analyzer", layout="centered")
+# import the model
+pipe = pickle.load(open('pipe.pkl','rb'))
+df = pickle.load(open('df.pkl','rb'))
 
-st.title("🔍 MAC Address Analyzer")
-st.markdown("Validate and analyze Unicast, Multicast & Broadcast MAC Addresses")
+st.title("Laptop Predictor")
 
-# ------------------------------
-# Sample OUI Database (Offline Example)
-# ------------------------------
-OUI_DATABASE = {
-    "00:1A:2B": "Cisco Systems",
-    "3C:5A:B4": "Dell Inc.",
-    "F0:18:98": "Apple Inc.",
-    "FC:FB:FB": "Google Inc."
-}
+# brand
+company = st.selectbox('Brand',df['Company'].unique())
 
-# ------------------------------
-# Functions
-# ------------------------------
+# type of laptop
+type = st.selectbox('Type',df['TypeName'].unique())
 
-def normalize_mac(mac):
-    mac = mac.upper().replace("-", ":").replace(".", "")
-    if "." in mac:
-        mac = mac.replace(".", "")
-    if len(mac.replace(":", "")) == 12:
-        mac = ":".join(mac.replace(":", "")[i:i+2] for i in range(0,12,2))
-    return mac
+# Ram
+ram = st.selectbox('RAM(in GB)',[2,4,6,8,12,16,24,32,64])
 
-def is_valid_mac(mac):
-    pattern = r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$'
-    return re.match(pattern, mac)
+# weight
+weight = st.number_input('Weight of the Laptop')
 
-def get_mac_type(mac):
-    if mac == "FF:FF:FF:FF:FF:FF":
-        return "Broadcast"
+# Touchscreen
+touchscreen = st.selectbox('Touchscreen',['No','Yes'])
 
-    first_byte = int(mac.split(":")[0], 16)
+# IPS
+ips = st.selectbox('IPS',['No','Yes'])
 
-    if first_byte & 1:
-        return "Multicast"
+# screen size
+screen_size = st.slider('Scrensize in inches', 10.0, 18.0, 13.0)
+
+# resolution
+resolution = st.selectbox('Screen Resolution',['1920x1080','1366x768','1600x900','3840x2160','3200x1800','2880x1800','2560x1600','2560x1440','2304x1440'])
+
+#cpu
+cpu = st.selectbox('CPU',df['Cpu brand'].unique())
+
+hdd = st.selectbox('HDD(in GB)',[0,128,256,512,1024,2048])
+
+ssd = st.selectbox('SSD(in GB)',[0,8,128,256,512,1024])
+
+gpu = st.selectbox('GPU',df['Gpu brand'].unique())
+
+os = st.selectbox('OS',df['os'].unique())
+
+if st.button('Predict Price'):
+    # query
+    ppi = None
+    if touchscreen == 'Yes':
+        touchscreen = 1
     else:
-        return "Unicast"
+        touchscreen = 0
 
-def get_bits_info(mac):
-    first_byte = int(mac.split(":")[0], 16)
-    binary = format(first_byte, '08b')
+    if ips == 'Yes':
+        ips = 1
+    else:
+        ips = 0
 
-    ig_bit = binary[-1]      # Individual/Group
-    ul_bit = binary[-2]      # Universal/Local
+    X_res = int(resolution.split('x')[0])
+    Y_res = int(resolution.split('x')[1])
+    ppi = ((X_res**2) + (Y_res**2))**0.5/screen_size
+    query = np.array([company,type,ram,weight,touchscreen,ips,ppi,cpu,hdd,ssd,gpu,os])
 
-    return binary, ig_bit, ul_bit
-
-def get_vendor(mac):
-    prefix = ":".join(mac.split(":")[0:3])
-    return OUI_DATABASE.get(prefix, "Unknown Vendor")
-
-# ------------------------------
-# User Input
-# ------------------------------
-
-mac_input = st.text_area("Enter one or multiple MAC Addresses (one per line):")
-
-if st.button("Analyze"):
-    mac_list = mac_input.strip().split("\n")
-
-    for mac in mac_list:
-        mac = normalize_mac(mac.strip())
-
-        st.markdown("---")
-        st.subheader(f"MAC: {mac}")
-
-        if not is_valid_mac(mac):
-            st.error("❌ Invalid MAC Address Format")
-            continue
-
-        mac_type = get_mac_type(mac)
-        binary, ig_bit, ul_bit = get_bits_info(mac)
-        vendor = get_vendor(mac)
-
-        # Display Results
-        if mac_type == "Broadcast":
-            st.success("📡 Type: BROADCAST")
-        elif mac_type == "Multicast":
-            st.warning("👥 Type: MULTICAST")
-        else:
-            st.info("👤 Type: UNICAST")
-
-        st.write(f"**Vendor (OUI Lookup):** {vendor}")
-        st.write(f"**First Octet (Binary):** {binary}")
-        st.write(f"**I/G Bit (LSB):** {ig_bit} → {'Multicast' if ig_bit=='1' else 'Unicast'}")
-        st.write(f"**U/L Bit:** {ul_bit} → {'Locally Administered' if ul_bit=='1' else 'Universally Administered'}")
-
-        st.markdown("""
-        🔎 **Explanation:**
-        - I/G Bit (Least Significant Bit):  
-          - 0 → Unicast  
-          - 1 → Multicast  
-        - U/L Bit:
-          - 0 → Globally unique (assigned by vendor)
-          - 1 → Locally modified MAC
-        """)
-
-st.markdown("---")
-st.caption("Developed for CN Practical – MAC Address Validation Lab")
+    query = query.reshape(1,12)
+    st.title("The predicted price of this configuration is " + str(int(np.exp(pipe.predict(query)[0]))))
